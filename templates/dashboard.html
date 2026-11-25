@@ -29,6 +29,10 @@
 const map=L.map('map').setView([0,20],3);
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}).addTo(map);
 L.control.scale().addTo(map);
+const mapNotice=L.control({position:'topright'});
+mapNotice.onAdd=()=>{const box=L.DomUtil.create('div');box.id='map-notice';box.style.cssText='background:#0e1925;color:#fff;padding:14px 18px;border-radius:8px;max-width:260px;font:14px/1.5 system-ui;box-shadow:0 2px 12px #0003';box.textContent='No tracker position yet. Connect with your API key to see received GPS locations.';return box;};
+mapNotice.addTo(map);
+
 const layers=L.featureGroup().addTo(map), $=id=>document.getElementById(id);
 let key='',points=[],busy=false,first=true,generation=0;
 const colors=['#087f85','#e56a24','#7058c7','#d23e67','#2373cc'];
@@ -39,6 +43,7 @@ function draw(){
  const selected=$('device').value,ids=[...groups.keys()];
  $('device').replaceChildren(new Option('All devices',''),...ids.map(id=>new Option(id,id)));$('device').value=ids.includes(selected)?selected:'';
  $('count').textContent=groups.size;
+ $('map-notice').textContent=points.length?'Tracking '+groups.size+' device(s) · markers show last received positions.':key?'Waiting for tracker GPS data. No positions have been received yet.':'No tracker position yet. Connect with your API key to see received GPS locations.';
  let latest=null;
  ids.forEach((id,i)=>{if($('device').value&&id!==$('device').value)return;
  const history=groups.get(id),p=history[history.length-1],color=colors[i%colors.length];
