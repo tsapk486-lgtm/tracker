@@ -1,3 +1,4 @@
+#define ENABLE_ERROR_STRING
 #define TINY_GSM_MODEM_SIM800
 #define TINY_GSM_RX_BUFFER 1024
 #include <TinyGsmClient.h>
@@ -140,7 +141,9 @@ void uploadTask(void *) {
   ESP_SSLClient https;
   https.setClient(&transport);
   https.setCACert(TRACKER_CA);
-  https.setTimeout(15000);
+  https.setTimeout(60);
+  https.setHandshakeTimeout(90);
+  https.setBufferSizes(16384, 1024);
   Position point;
   bool initialized = false;
   for (;;) {
@@ -182,7 +185,9 @@ void uploadTask(void *) {
     } else epoch += (millis() - point.capturedAt) / 1000;
     https.setX509Time(epoch);
     if (!https.connect(TRACKER_HOST, 443)) {
-      Serial.println("[UPLOAD] Verified TLS connection failed.");
+      char detail[160] = {};
+      int error = https.getLastSSLError(detail, sizeof(detail));
+      Serial.printf("[UPLOAD] TLS failed: code=%d detail=%s epoch=%lu heap=%lu signal=%d\n", error, detail, static_cast<unsigned long>(epoch), ESP.getFreeHeap(), modem.getSignalQuality());
       https.stop(); continue;
     }
     char body[256];
@@ -200,7 +205,19 @@ void uploadTask(void *) {
     https.print(TRACKER_API_KEY);
     https.print("\r\nConnection: close\r\nContent-Length: ");
     https.print(strlen(body)); https.print("\r\n\r\n"); https.print(body);
-    String status = https.readStringUntil('\n');
+    https.flush();
+    String status;
+    const uint32_t responseStarted = millis();
+    while (millis() - responseStarted < 60000 && status.length() < 160) {
+      if (https.available()) {
+        const int byte = https.read();
+        if (byte == '\n') break;
+        if (byte >= 0 && byte != '\r') status += static_cast<char>(byte);
+      } else {
+        if (!https.connected()) break;
+        vTaskDelay(pdMS_TO_TICKS(10));
+      }
+    }
     Serial.println(status.startsWith("HTTP/1.1 201") || status.startsWith("HTTP/1.0 201")
       ? (point.gpsFix ? "[UPLOAD] Position saved to dashboard." : "[UPLOAD] Heartbeat saved; waiting for GPS fix.")
       : "[UPLOAD] Not acknowledged: " + status);
@@ -231,6 +248,7 @@ void setup() {
   // The pin arguments are ESP32 RX first, then ESP32 TX.
   GNSS.setRxBufferSize(2048);
   GNSS.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
+  GSM.setRxBufferSize(8192);
   GSM.begin(GSM_BAUD, SERIAL_8N1, GSM_RX_PIN, GSM_TX_PIN);
 
   Wire.begin(OLED_SDA_PIN, OLED_SCK_PIN);
@@ -245,7 +263,7 @@ void setup() {
   setenv("TZ", "UTC0", 1);
   tzset();
   uploadQueue = xQueueCreate(1, sizeof(Position));
-  if (!uploadQueue || xTaskCreate(uploadTask, "tracker-upload", 16384, nullptr, 1, nullptr) != pdPASS) {
+  if (!uploadQueue || xTaskCreate(uploadTask, "tracker-upload", 24576, nullptr, 0, nullptr) != pdPASS) {
     Serial.println("Upload task allocation failed.");
     while (true) delay(1000);
   }

@@ -28,3 +28,8 @@ performed as part of source preparation. The SIM needs working 2G/GPRS service.
 
 The dashboard marks devices online for 90 seconds after the last received message.
 Heartbeat-only messages update device status without adding fake map positions.
+
+Cellular TLS uses an 8 KiB UART receive buffer, a 90-second handshake timeout,
+and a 60-second response wait. The upload task runs at idle priority so
+FreeRTOS idle tasks can service the watchdog during software TLS operations.
+Certificate and hostname verification remain enabled.
