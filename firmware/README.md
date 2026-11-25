@@ -9,8 +9,8 @@ Use a unique device ID containing letters, numbers or hyphens. Keep configuratio
 private; `tracker_config.h` is ignored by Git.
 
 Run `pio run` to compile, then `pio run -t upload` with the ESP32 connected.
-Serial monitor speed is 115200. The uploader requires fresh GPS coordinates and
-UTC date/time, cellular registration and GPRS. It submits the latest fix every
+Serial monitor speed is 115200. The uploader sends a heartbeat even without a GPS fix. Verified HTTPS needs
+UTC time from GPS or the cellular network, plus cellular registration and GPRS. It submits a heartbeat or latest fix every
 15 seconds when connectivity permits; failed requests are replaced by the next
 fresh fix, with no offline backlog. Successful storage prints
 `[UPLOAD] Position saved to dashboard.`
@@ -25,3 +25,6 @@ SIM800L's older built-in SSL stack.
 Open https://tracker-production-87a1f764.up.railway.app/ and enter the API key to
 see received locations. No hardware flash or physical cellular test has been
 performed as part of source preparation. The SIM needs working 2G/GPRS service.
+
+The dashboard marks devices online for 90 seconds after the last received message.
+Heartbeat-only messages update device status without adding fake map positions.

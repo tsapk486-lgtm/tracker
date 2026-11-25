@@ -26,7 +26,7 @@ curl -X POST http://127.0.0.1:5000/api/tracker \
 Successful requests return HTTP 201 with `status`, the stored row `id`, and
 `received_at`. Missing/incorrect keys return 401; invalid JSON objects return 400;
 non-JSON requests return 415; payloads over 64 KiB return 413.
-`GET /health` returns `{"status":"ok"}`. There is no public data retrieval route.
+`GET /health` returns `{"status":"ok"}`. Data retrieval requires the API key.
 Every accepted POST creates a new row, including retries of the same payload.
 
 ## Live map dashboard
@@ -111,3 +111,8 @@ https://help.pythonanywhere.com/pages/Flask/
 Data is stored in `tracker.db`; back it up and monitor disk usage as readings
 accumulate. Before connecting a physical tracker, verify its HTTP support,
 payload format, custom-header support, and required acknowledgement response.
+
+Heartbeats: POST `{"device_id":"tracker-001","gps_fix":false,"uptime_ms":15000}`
+to `/api/tracker` with the usual headers. Device status is returned in the
+`devices` array of `/api/positions`; online means last seen less than 90 seconds
+ago. Heartbeats do not add route points.

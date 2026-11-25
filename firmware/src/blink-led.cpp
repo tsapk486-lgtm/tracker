@@ -128,6 +128,7 @@ void printGPSReport(bool hasFreshFix) {
 struct Position {
   double latitude, longitude, speed;
   uint32_t capturedAt, epoch;
+  bool gpsFix;
 };
 QueueHandle_t uploadQueue;
 constexpr char TRACKER_HOST[] = "tracker-production-87a1f764.up.railway.app";
@@ -141,15 +142,19 @@ void uploadTask(void *) {
   https.setCACert(TRACKER_CA);
   https.setTimeout(15000);
   Position point;
+  bool initialized = false;
   for (;;) {
     if (xQueueReceive(uploadQueue, &point, portMAX_DELAY) != pdTRUE) continue;
     if (millis() - point.capturedAt > 60000) continue;
-    if (!modem.isNetworkConnected()) {
+    if (!initialized) {
       if (!modem.init()) {
         Serial.println("[UPLOAD] Modem unavailable; retrying in 15 seconds.");
         vTaskDelay(pdMS_TO_TICKS(15000)); continue;
       }
       if (strlen(TRACKER_SIM_PIN)) modem.simUnlock(TRACKER_SIM_PIN);
+      initialized = true;
+    }
+    if (!modem.isNetworkConnected()) {
       if (!modem.waitForNetwork(60000L)) {
         Serial.println("[UPLOAD] Waiting for cellular network."); continue;
       }
@@ -162,7 +167,20 @@ void uploadTask(void *) {
     Position newer;
     if (xQueueReceive(uploadQueue, &newer, 0) == pdTRUE) point = newer;
     if (millis() - point.capturedAt > 60000) continue;
-    https.setX509Time(point.epoch + (millis() - point.capturedAt) / 1000);
+    uint32_t epoch = point.epoch;
+    if (!epoch) {
+      int y, mo, d, h, mi, sec; float offset;
+      if (!modem.getNetworkTime(&y, &mo, &d, &h, &mi, &sec, &offset) ||
+          y < 2025 || y > 2100 || mo < 1 || mo > 12 || d < 1 || d > 31) {
+        Serial.println("[UPLOAD] Waiting for network or GPS clock for verified TLS.");
+        continue;
+      }
+      struct tm utc = {};
+      utc.tm_year=y-1900; utc.tm_mon=mo-1; utc.tm_mday=d;
+      utc.tm_hour=h; utc.tm_min=mi; utc.tm_sec=sec;
+      epoch = static_cast<uint32_t>(mktime(&utc) - offset * 3600);
+    } else epoch += (millis() - point.capturedAt) / 1000;
+    https.setX509Time(epoch);
     if (!https.connect(TRACKER_HOST, 443)) {
       Serial.println("[UPLOAD] Verified TLS connection failed.");
       https.stop(); continue;
@@ -171,6 +189,11 @@ void uploadTask(void *) {
     snprintf(body, sizeof(body),
       "{\"device_id\":\"%s\",\"latitude\":%.6f,\"longitude\":%.6f,\"speed\":%.2f}",
       TRACKER_DEVICE_ID, point.latitude, point.longitude, point.speed);
+    if (!point.gpsFix) {
+      snprintf(body, sizeof(body),
+        "{\"device_id\":\"%s\",\"type\":\"heartbeat\",\"gps_fix\":false,\"uptime_ms\":%lu}",
+        TRACKER_DEVICE_ID, static_cast<unsigned long>(millis()));
+    }
     https.print("POST /api/tracker HTTP/1.1\r\nHost: ");
     https.print(TRACKER_HOST);
     https.print("\r\nContent-Type: application/json\r\nX-API-Key: ");
@@ -179,7 +202,7 @@ void uploadTask(void *) {
     https.print(strlen(body)); https.print("\r\n\r\n"); https.print(body);
     String status = https.readStringUntil('\n');
     Serial.println(status.startsWith("HTTP/1.1 201") || status.startsWith("HTTP/1.0 201")
-      ? "[UPLOAD] Position saved to dashboard."
+      ? (point.gpsFix ? "[UPLOAD] Position saved to dashboard." : "[UPLOAD] Heartbeat saved; waiting for GPS fix.")
       : "[UPLOAD] Not acknowledged: " + status);
     https.stop();
   }
@@ -188,16 +211,16 @@ void uploadTask(void *) {
 void queuePosition() {
   static uint32_t lastUpload = 0;
   if (millis() - lastUpload < UPLOAD_INTERVAL_MS) return;
-  if (!gps.location.isValid() || gps.location.age() >= MAX_FIX_AGE_MS ||
-      !gps.date.isValid() || !gps.time.isValid() ||
-      gps.date.age() >= MAX_FIX_AGE_MS || gps.time.age() >= MAX_FIX_AGE_MS) return;
+  const bool fix = gps.location.isValid() && gps.location.age() < MAX_FIX_AGE_MS;
+  const bool clock = gps.date.isValid() && gps.time.isValid() &&
+    gps.date.age() < MAX_FIX_AGE_MS && gps.time.age() < MAX_FIX_AGE_MS;
   struct tm utc = {};
   utc.tm_year = gps.date.year() - 1900; utc.tm_mon = gps.date.month() - 1;
   utc.tm_mday = gps.date.day(); utc.tm_hour = gps.time.hour();
   utc.tm_min = gps.time.minute(); utc.tm_sec = gps.time.second();
   Position point = {gps.location.lat(), gps.location.lng(),
     gps.speed.isValid() && gps.speed.age() < MAX_FIX_AGE_MS ? gps.speed.kmph() : 0,
-    millis(), static_cast<uint32_t>(mktime(&utc))};
+    millis(), clock ? static_cast<uint32_t>(mktime(&utc)) : 0, fix};
   xQueueOverwrite(uploadQueue, &point);
   lastUpload = millis();
 }
@@ -228,7 +251,7 @@ void setup() {
   }
   updateOLED(false);
   Serial.println(
-      "GPS tracker ready. Cellular uploads start when GPS UTC and position are valid.");
+      "GPS tracker ready. Heartbeats start with cellular connection and valid network or GPS clock.");
 }
 
 void loop() {

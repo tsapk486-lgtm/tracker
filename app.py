@@ -28,6 +28,10 @@ def create_app(config=None):
             received_at TEXT NOT NULL,
             payload TEXT NOT NULL
         )""")
+        db.execute("""CREATE TABLE IF NOT EXISTS devices (
+            device_id TEXT PRIMARY KEY, last_seen TEXT NOT NULL,
+            gps_fix INTEGER NOT NULL, uptime_ms INTEGER
+        )""")
 
     @app.get("/health")
     def health():
@@ -57,7 +61,14 @@ def create_app(config=None):
                 "latitude": lat, "longitude": lon,
                 "battery": payload.get("battery"), "speed": payload.get("speed"),
             }))
-        response = jsonify(points=points)
+        with sqlite3.connect(app.config["DATABASE"], timeout=10) as db:
+            devices = db.execute("SELECT device_id, last_seen, gps_fix, uptime_ms FROM devices ORDER BY device_id").fetchall()
+        now = datetime.now(timezone.utc)
+        response = jsonify(points=points, devices=[{
+            "device_id": device, "last_seen": seen, "gps_fix": bool(fix),
+            "uptime_ms": uptime,
+            "online": (now - datetime.fromisoformat(seen)).total_seconds() < 90,
+        } for device, seen, fix, uptime in devices])
         response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -71,13 +82,28 @@ def create_app(config=None):
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict) or not payload:
             return jsonify(error="Body must be a non-empty JSON object"), 400
+        device = payload.get("device_id", "unknown")
+        if not isinstance(device, str) or not 1 <= len(device) <= 128:
+            return jsonify(error="device_id must be a string of 1 to 128 characters"), 400
+        uptime = payload.get("uptime_ms")
+        if uptime is not None and (type(uptime) is not int or not 0 <= uptime <= 2**32 - 1):
+            return jsonify(error="uptime_ms must be an unsigned 32-bit integer"), 400
+        fix = payload.get("gps_fix", "latitude" in payload and "longitude" in payload)
+        if type(fix) is not bool:
+            return jsonify(error="gps_fix must be boolean"), 400
         received_at = datetime.now(timezone.utc).isoformat()
         with sqlite3.connect(app.config["DATABASE"], timeout=10) as db:
-            cursor = db.execute(
-                "INSERT INTO readings (received_at, payload) VALUES (?, ?)",
-                (received_at, json.dumps(payload)),
-            )
-            reading_id = cursor.lastrowid
+            db.execute("""INSERT INTO devices VALUES (?, ?, ?, ?)
+                ON CONFLICT(device_id) DO UPDATE SET last_seen=excluded.last_seen,
+                gps_fix=excluded.gps_fix, uptime_ms=excluded.uptime_ms""",
+                (device, received_at, int(fix), uptime))
+            reading_id = None
+            if "latitude" in payload and "longitude" in payload:
+                cursor = db.execute(
+                    "INSERT INTO readings (received_at, payload) VALUES (?, ?)",
+                    (received_at, json.dumps(payload)),
+                )
+                reading_id = cursor.lastrowid
         return jsonify(status="received", id=reading_id, received_at=received_at), 201
 
     @app.errorhandler(413)

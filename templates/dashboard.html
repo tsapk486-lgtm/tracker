@@ -14,7 +14,7 @@
 <h2>Your fleet, in view.</h2>
 <form id="connect"><label for="key">Tracker API key</label><input id="key" type="password" autocomplete="off" placeholder="Enter your API key" required><button>Connect to tracker</button></form>
 <div id="status" role="status" aria-live="polite">Connect to display your devices. Location data requires your API key.</div>
-<label for="device">Device</label><select id="device"><option value="">All devices</option></select>
+<div id="online" role="status">No device heartbeat received.</div><label for="device">Device</label><select id="device"><option value="">All devices</option></select>
 <button id="fit" class="secondary">Fit all positions</button>
 <label class="check"><input id="follow" type="checkbox" checked> Follow selected device</label>
 <div class="metric"><small>Devices in history</small><strong id="count">—</strong></div>
@@ -34,19 +34,20 @@ mapNotice.onAdd=()=>{const box=L.DomUtil.create('div');box.id='map-notice';box.s
 mapNotice.addTo(map);
 
 const layers=L.featureGroup().addTo(map), $=id=>document.getElementById(id);
-let key='',points=[],busy=false,first=true,generation=0;
+let key='',points=[],devices=[],busy=false,first=true,generation=0;
 const colors=['#087f85','#e56a24','#7058c7','#d23e67','#2373cc'];
 function fit(){if(layers.getLayers().length)map.fitBounds(layers.getBounds(),{padding:[40,40],maxZoom:16});}
 function draw(){
  layers.clearLayers();const groups=new Map();
  for(const p of points){if(!groups.has(p.device_id))groups.set(p.device_id,[]);groups.get(p.device_id).push(p);}
- const selected=$('device').value,ids=[...groups.keys()];
+ const selected=$('device').value,ids=[...new Set([...groups.keys(),...devices.map(d=>d.device_id)])];
  $('device').replaceChildren(new Option('All devices',''),...ids.map(id=>new Option(id,id)));$('device').value=ids.includes(selected)?selected:'';
- $('count').textContent=groups.size;
+ $('count').textContent=ids.length;
+ $('online').replaceChildren(...devices.map(d=>{const el=document.createElement('p');el.style.color=d.online?'#64e2b5':'#b3c9dc';el.textContent=d.device_id+' · '+(d.online?'Online':'Offline')+' · '+(d.gps_fix?'GPS fix':'Waiting for GPS')+' · last seen '+new Date(d.last_seen).toLocaleTimeString();return el;}));
  $('map-notice').textContent=points.length?'Tracking '+groups.size+' device(s) · markers show last received positions.':key?'Waiting for tracker GPS data. No positions have been received yet.':'No tracker position yet. Connect with your API key to see received GPS locations.';
  let latest=null;
  ids.forEach((id,i)=>{if($('device').value&&id!==$('device').value)return;
- const history=groups.get(id),p=history[history.length-1],color=colors[i%colors.length];
+ const history=groups.get(id);if(!history?.length)return;const p=history[history.length-1],color=colors[i%colors.length];
  L.polyline(history.map(x=>[x.latitude,x.longitude]),{color,weight:4,opacity:.65}).addTo(layers);
  const popup=document.createElement('div');popup.textContent=id+' · '+new Date(p.received_at).toLocaleString();
  L.circleMarker([p.latitude,p.longitude],{radius:10,color:'#fff',weight:3,fillColor:color,fillOpacity:1}).bindPopup(popup).addTo(layers);
@@ -56,10 +57,10 @@ function draw(){
  if(first&&points.length){fit();first=false;}else if($('follow').checked&&$('device').value&&latest)map.panTo([latest.latitude,latest.longitude]);
 }
 async function refresh(){if(!key||busy)return;busy=true;const version=generation;
- try{const r=await fetch('/api/positions',{headers:{'X-API-Key':key},cache:'no-store'});if(version!==generation)return;if(!r.ok)throw Error(r.status===401?'Incorrect API key. Please reconnect.':'Unable to fetch positions ('+r.status+').');const data=await r.json();if(version!==generation)return;points=data.points;draw();$('status').textContent=points.length?'Connected · updated '+new Date().toLocaleTimeString():'Connected · waiting for GPS readings.';}
+ try{const r=await fetch('/api/positions',{headers:{'X-API-Key':key},cache:'no-store'});if(version!==generation)return;if(!r.ok)throw Error(r.status===401?'Incorrect API key. Please reconnect.':'Unable to fetch positions ('+r.status+').');const data=await r.json();if(version!==generation)return;points=data.points;devices=data.devices||[];draw();$('status').textContent=points.length?'Connected · updated '+new Date().toLocaleTimeString():'Connected · waiting for GPS readings.';}
  catch(e){if(version===generation)$('status').textContent=e.message;}finally{busy=false;}
 }
 $('connect').onsubmit=e=>{e.preventDefault();generation++;key=$('key').value;$('key').value='';first=true;refresh();};
-$('disconnect').onclick=()=>{generation++;key='';points=[];layers.clearLayers();draw();$('status').textContent='Disconnected. Location data cleared.';};
+$('disconnect').onclick=()=>{generation++;key='';points=[];devices=[];layers.clearLayers();draw();$('status').textContent='Disconnected. Location data cleared.';};
 $('device').onchange=()=>{draw();fit();};$('fit').onclick=fit;setInterval(refresh,5000);
 </script></body></html>
