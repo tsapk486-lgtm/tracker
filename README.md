@@ -29,6 +29,20 @@ non-JSON requests return 415; payloads over 64 KiB return 413.
 `GET /health` returns `{"status":"ok"}`. There is no public data retrieval route.
 Every accepted POST creates a new row, including retries of the same payload.
 
+## Live map dashboard
+
+Open `/` on the deployed domain and enter your tracker API key to connect.
+The dashboard refreshes every five seconds, shows each device's latest marker,
+draws its stored route, and supports device selection and following. The key is
+kept only in page memory. `GET /api/positions` requires `X-API-Key` and returns
+valid coordinates from the 5,000 most recent readings. Map tiles use OpenStreetMap.
+
+Tracker messages should contain `device_id`, numeric `latitude` (-90 to 90),
+numeric `longitude` (-180 to 180), and optionally `speed` in km/h and `battery`
+as a percentage. Send these as JSON via HTTPS POST to `/api/tracker` with
+`Content-Type: application/json` and the `X-API-Key` header. HTTP 201 confirms
+storage. Never put the real API key in public firmware source.
+
 ## Railway deployment from GitHub
 
 1. In Railway, choose **New Project → Deploy from GitHub repo** and select

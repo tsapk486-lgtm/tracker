@@ -2,11 +2,12 @@
 import hmac
 import json
 import os
+import math
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, render_template
 
 
 def create_app(config=None):
@@ -31,6 +32,34 @@ def create_app(config=None):
     @app.get("/health")
     def health():
         return jsonify(status="ok")
+
+    @app.get("/")
+    def dashboard():
+        return render_template("dashboard.html")
+
+    @app.get("/api/positions")
+    def positions():
+        supplied = request.headers.get("X-API-Key", "")
+        if not hmac.compare_digest(supplied.encode(), app.config["TRACKER_API_KEY"].encode()):
+            return jsonify(error="Unauthorized"), 401
+        with sqlite3.connect(app.config["DATABASE"], timeout=10) as db:
+            rows = db.execute("SELECT id, received_at, payload FROM readings ORDER BY id DESC LIMIT 5000").fetchall()
+        points = []
+        for row_id, received_at, raw in reversed(rows):
+            payload = json.loads(raw)
+            lat, lon = payload.get("latitude"), payload.get("longitude")
+            if (type(lat) not in (int, float) or type(lon) not in (int, float)
+                    or not math.isfinite(lat) or not math.isfinite(lon)
+                    or not -90 <= lat <= 90 or not -180 <= lon <= 180):
+                continue
+            points.append(dict(id=row_id, received_at=received_at, **{
+                "device_id": str(payload.get("device_id", "unknown")),
+                "latitude": lat, "longitude": lon,
+                "battery": payload.get("battery"), "speed": payload.get("speed"),
+            }))
+        response = jsonify(points=points)
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.post("/api/tracker")
     def receive():
