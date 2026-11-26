@@ -21,6 +21,7 @@
 </style>
 <style>
 .motion-device{border-top:1px solid var(--line);padding:14px 0}.motion-device h3{font-size:14px;overflow-wrap:anywhere}.motion-device h4{font-size:12px;color:var(--muted);margin:18px 0 4px}.motion-device svg{width:100%;height:auto;display:block}.motion-scene{height:90px;display:grid;place-items:center;background:radial-gradient(ellipse,var(--line),transparent 70%)}.motion-model{border:2px solid var(--accent);border-radius:10px;width:40px;height:64px;display:grid;place-items:center;color:var(--accent);font-size:24px}.motion-value{font-variant-numeric:tabular-nums;font-size:14px;margin:8px 0}.motion-device p{margin:6px 0}
+.views{min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}.view-tabs{display:flex;gap:8px;padding:12px 18px;border-bottom:1px solid var(--line);background:var(--panel)}.view-tabs button{width:auto;margin:0;min-width:100px;background:transparent;color:var(--muted);border:1px solid var(--line)}.view-tabs button[aria-selected=true]{background:var(--accent);color:#1d2b16;border-color:var(--accent)}#map-panel{flex:1;min-height:0}#motion-panel{flex:1;overflow:auto;padding:28px}#motion-panel[hidden],#map-panel[hidden]{display:none}#motion{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:24px}.motion-scene{height:220px}.motion-model{width:70px;height:112px;font-size:32px}.motion-device svg{max-height:180px}.motion-device h3{font-size:18px}@media(max-width:760px){.views{order:1;min-height:460px}#motion-panel{padding:20px}#map-panel #map{min-height:0}.layout{grid-template-rows:65dvh auto}}
 </style>
 </head>
 <body>
@@ -33,11 +34,14 @@
 <button id="fit" class="secondary">Fit all positions</button>
 <label class="check"><input id="follow" type="checkbox" checked> Follow selected device</label>
 <div class="metric"><small>Devices in history</small><strong id="count">—</strong></div>
-<section class="telemetry-panel"><h2>Motion</h2><div id="motion"><p class="telemetry-empty">Connect to see motion.</p></div></section>
 <section class="telemetry-panel"><h2>Live telemetry</h2><div id="telemetry"><p class="telemetry-empty">Connect to see all reported fields.</p></div></section>
 <button id="disconnect" class="secondary">Disconnect</button>
 <footer>Markers show the latest received position. Lines show up to 5,000 recent stored readings. No sample locations are displayed.</footer>
-</aside><div id="map" aria-label="Tracker location map"></div></main>
+</aside><section class="views" aria-label="Tracker views">
+<div class="view-tabs" role="tablist" aria-label="Tracker view"><button type="button" id="map-tab" role="tab" aria-selected="true" aria-controls="map-panel">Map</button><button type="button" id="motion-tab" role="tab" aria-selected="false" aria-controls="motion-panel" tabindex="-1">Motion</button></div>
+<div id="map-panel" role="tabpanel" aria-labelledby="map-tab"><div id="map" aria-label="Tracker location map"></div></div>
+<div id="motion-panel" role="tabpanel" aria-labelledby="motion-tab" hidden><h2>Device motion</h2><p class="intro">Movement intensity and peak acceleration from your device.</p><div id="motion"><p class="telemetry-empty">Connect to see motion.</p></div></div>
+</section></main>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="{{ url_for('static', filename='motion.js') }}"></script>
 <script>
@@ -49,6 +53,16 @@ mapNotice.onAdd=()=>{const box=L.DomUtil.create('div','map-notice');box.id='map-
 mapNotice.addTo(map);
 
 const layers=L.featureGroup().addTo(map), $=id=>document.getElementById(id);
+function selectView(name){
+ for(const view of ['map','motion']){const active=view===name;$(view+'-tab').setAttribute('aria-selected',String(active));$(view+'-tab').tabIndex=active?0:-1;$(view+'-panel').hidden=!active;}
+ if(name==='map')requestAnimationFrame(()=>map.invalidateSize({pan:false}));
+ else {draw.motionVersion=null;draw();}
+}
+for(const name of ['map','motion']){
+ $(name+'-tab').onclick=()=>selectView(name);
+ $(name+'-tab').onkeydown=e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const next=e.key==='Home'?'map':e.key==='End'?'motion':name==='map'?'motion':'map';selectView(next);$(next+'-tab').focus();}};
+}
+
 let key='',points=[],devices=[],motion=[],busy=false,first=true,generation=0;
 const markers=new Map(), trails=new Map();
 let lastSync=0;
