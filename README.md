@@ -116,3 +116,21 @@ Heartbeats: POST `{"device_id":"tracker-001","gps_fix":false,"uptime_ms":15000}`
 to `/api/tracker` with the usual headers. Device status is returned in the
 `devices` array of `/api/positions`; online means last seen less than 90 seconds
 ago. Heartbeats do not add route points.
+
+## Automatic extra telemetry
+
+Send any additional JSON fields (for example `satellites`, `hdop`, `temperature`,
+or nested sensor objects) to `/api/tracker`. The dashboard automatically displays
+them in Live telemetry and the marker card without adding code for each field.
+The tracker firmware must still measure and send the fields.
+
+Each device's `telemetry` in `/api/positions` contains its latest complete message.
+Heartbeat-only messages are supported. A new message replaces the previous
+snapshot, so omitted fields are not presented as current readings. GPS history
+remains stored separately; additional fields in coordinate-bearing historical
+messages remain in their raw database payload. Existing data is preserved.
+
+Values are displayed as text, with expandable nested objects and arrays; the
+dashboard does not infer units for unfamiliar fields. Include units in field names
+(e.g. `temperature_c`) or send `{"value": 23, "unit": "C"}`. Authentication and
+the 64 KiB request limit still apply. Do not include secrets in telemetry.

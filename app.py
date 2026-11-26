@@ -32,6 +32,9 @@ def create_app(config=None):
             device_id TEXT PRIMARY KEY, last_seen TEXT NOT NULL,
             gps_fix INTEGER NOT NULL, uptime_ms INTEGER
         )""")
+        db.execute("""CREATE TABLE IF NOT EXISTS device_telemetry (
+            device_id TEXT PRIMARY KEY, payload TEXT NOT NULL
+        )""")
 
     @app.get("/health")
     def health():
@@ -62,13 +65,16 @@ def create_app(config=None):
                 "battery": payload.get("battery"), "speed": payload.get("speed"),
             }))
         with sqlite3.connect(app.config["DATABASE"], timeout=10) as db:
-            devices = db.execute("SELECT device_id, last_seen, gps_fix, uptime_ms FROM devices ORDER BY device_id").fetchall()
+            devices = db.execute("""SELECT d.device_id, d.last_seen, d.gps_fix,
+                d.uptime_ms, t.payload FROM devices d LEFT JOIN device_telemetry t
+                ON t.device_id=d.device_id ORDER BY d.device_id""").fetchall()
         now = datetime.now(timezone.utc)
         response = jsonify(points=points, devices=[{
             "device_id": device, "last_seen": seen, "gps_fix": bool(fix),
             "uptime_ms": uptime,
+            "telemetry": json.loads(raw) if raw is not None else {},
             "online": (now - datetime.fromisoformat(seen)).total_seconds() < 90,
-        } for device, seen, fix, uptime in devices])
+        } for device, seen, fix, uptime, raw in devices])
         response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -97,6 +103,9 @@ def create_app(config=None):
                 ON CONFLICT(device_id) DO UPDATE SET last_seen=excluded.last_seen,
                 gps_fix=excluded.gps_fix, uptime_ms=excluded.uptime_ms""",
                 (device, received_at, int(fix), uptime))
+            db.execute("""INSERT INTO device_telemetry VALUES (?, ?)
+                ON CONFLICT(device_id) DO UPDATE SET payload=excluded.payload""",
+                (device, json.dumps(payload)))
             reading_id = None
             if "latitude" in payload and "longitude" in payload:
                 cursor = db.execute(

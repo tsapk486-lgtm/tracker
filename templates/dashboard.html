@@ -8,6 +8,8 @@
 *{box-sizing:border-box}body{margin:0;font:16px system-ui,sans-serif;background:#0e1925;color:#eaf3fc}header{height:76px;display:flex;align-items:center;justify-content:space-between;padding:0 26px;border-bottom:1px solid #2a3b4e}h1{font-size:22px;margin:0}header span{color:#9fb3c8;font-size:14px}.layout{display:grid;grid-template-columns:310px 1fr;height:calc(100dvh - 76px)}aside{padding:24px;overflow:auto}h2{font-size:16px;margin:0 0 16px}label{display:block;margin:18px 0 8px;color:#c6d7e8;font-size:14px}input,select,button{font:inherit;border:1px solid #40566c;border-radius:8px;padding:11px;width:100%;background:#172a3c;color:#fff}button{cursor:pointer;background:#087f85;border:0;margin-top:12px}button.secondary{background:#243b50}#status{font-size:14px;line-height:1.6;color:#b3c9dc;margin:18px 0}.metric{padding:16px 0;border-top:1px solid #2a3b4e}.metric small{display:block;color:#9fb3c8;font-size:14px;margin-bottom:7px}.metric strong{font-size:18px;overflow-wrap:anywhere}#map{height:100%;background:#dbe5e9;color:#142737}.leaflet-popup-content{font:14px system-ui}.check{display:flex;gap:10px;align-items:center}.check input{width:auto}footer{font-size:14px;line-height:1.6;color:#9fb3c8;margin-top:24px}@media(max-width:700px){header{padding:0 16px}header span{display:none}.layout{grid-template-columns:1fr;grid-template-rows:minmax(420px,65dvh) auto;height:auto}aside{padding:16px;order:2}#map{order:1}.metric{display:inline-block;width:48%;vertical-align:top}#map{min-height:420px}}
 
 .tracker-pin{background:none;border:0}.tracker-dot{position:relative;display:block;width:22px;height:22px;border:3px solid white;border-radius:50%;background:#718096;box-shadow:0 2px 8px #0005}.tracker-dot.online{background:#09956b}.tracker-dot.online:before{content:'';position:absolute;inset:-8px;border:2px solid #09956b;border-radius:50%;animation:beacon 2s ease-out infinite}.tracker-dot.offline{background:#718096}.tracker-dot.unknown{background:#d58b17}.tracker-card{min-width:220px;color:#152b3d}.tracker-card h3{margin:0 0 10px;font-size:18px;overflow-wrap:anywhere}.tracker-card .badge{display:inline-block;border-radius:20px;padding:4px 10px;font-weight:600;margin-bottom:10px;background:#edf2f6;color:#536579}.tracker-card .badge.online{background:#d9f7e9;color:#086c4c}.tracker-card .badge.unknown{background:#fff0cf;color:#875400}.tracker-card dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:9px 14px;font-size:14px}.tracker-card dt{color:#617589}.tracker-card dd{margin:0;text-align:right;overflow-wrap:anywhere}.tracker-card .hint{font-size:13px;color:#617589;margin:12px 0 0}.leaflet-popup-content-wrapper{border-radius:12px}.map-legend{background:#fff;color:#263b4d;padding:10px 13px;border-radius:8px;font:14px/1.8 system-ui;box-shadow:0 2px 10px #0002}.legend-dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:7px}.map-legend span{white-space:nowrap;display:block}@keyframes beacon{0%{transform:scale(.6);opacity:.9}100%{transform:scale(1.8);opacity:0}}@media(prefers-reduced-motion:reduce){.tracker-dot.online:before{animation:none;opacity:.4}}
+
+.telemetry-panel{margin-top:22px;border-top:1px solid #2a3b4e;padding-top:18px}.telemetry-panel h2{margin-bottom:10px}.telemetry-device{border:1px solid #40566c;border-radius:8px;padding:10px;margin:10px 0}.telemetry-device summary{cursor:pointer;overflow-wrap:anywhere}.telemetry-fields{margin-top:12px;max-height:320px;overflow:auto}.telemetry-row{padding:8px 0;border-bottom:1px solid #8095a333;overflow-wrap:anywhere}.telemetry-label{display:block;font-size:14px;opacity:.75;margin-bottom:4px}.telemetry-value{font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}.telemetry-nested{margin-left:10px;border-left:2px solid #8095a344;padding-left:10px}.tracker-card .telemetry-fields{max-height:240px}.tracker-card h4{margin:15px 0 0;font-size:14px}.telemetry-empty{font-size:14px;opacity:.75}
 </style>
 </head>
 <body>
@@ -23,6 +25,7 @@
 <div class="metric"><small>Last received</small><strong id="last">—</strong></div>
 <div class="metric"><small>Speed (km/h)</small><strong id="speed">—</strong></div>
 <div class="metric"><small>Battery</small><strong id="battery">—</strong></div>
+<section class="telemetry-panel"><h2>Live telemetry</h2><div id="telemetry"><p class="telemetry-empty">Connect to see all reported fields.</p></div></section>
 <button id="disconnect" class="secondary">Disconnect</button>
 <footer>Markers show the latest received position. Lines show up to 5,000 recent stored readings. No sample locations are displayed.</footer>
 </aside><div id="map" aria-label="Tracker location map"></div></main>
@@ -47,6 +50,32 @@ function deviceState(device){
  return Number.isFinite(seen)&&Date.now()-seen<90000?'online':'offline';
 }
 function markerIcon(state){return L.divIcon({className:'tracker-pin',html:'<span class="tracker-dot '+state+'"></span>',iconSize:[22,22],iconAnchor:[11,11],popupAnchor:[0,-15]});}
+function fieldLabel(name){return name.replace(/_/g,' ').replace(/([a-z])([A-Z])/g,'$1 $2');}
+function telemetryFields(payload,excluded=[]){
+ const root=document.createElement('div');root.className='telemetry-fields';
+ function add(container,name,value,depth){
+  const row=document.createElement('div');row.className='telemetry-row';
+  const label=document.createElement('span');label.className='telemetry-label';label.textContent=fieldLabel(name);row.append(label);
+  if(value!==null&&typeof value==='object'&&Object.keys(value).length&&depth<8){
+   const nested=document.createElement('div');nested.className='telemetry-nested';
+   for(const [child,item] of Object.entries(value))add(nested,child,item,depth+1);const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent=Array.isArray(value)?value.length+' items':'View fields';details.append(summary,nested);row.append(details);
+  }else{const text=document.createElement('div');text.className='telemetry-value';text.textContent=value===null?'Not reported':typeof value==='object'?JSON.stringify(value,null,2):String(value);row.append(text);}
+  container.append(row);
+ }
+ for(const [name,value] of Object.entries(payload||{}))if(!excluded.includes(name))add(root,name,value,0);
+ if(!root.childElementCount){const empty=document.createElement('p');empty.className='telemetry-empty';empty.textContent='No additional fields in the latest message.';root.append(empty);}
+ return root;
+}
+function drawTelemetry(){
+ const host=$('telemetry'),expanded=new Set([...host.querySelectorAll('details[open]')].map(el=>el.dataset.device));
+ host.replaceChildren();const selected=$('device').value;
+ for(const device of devices){if(selected&&device.device_id!==selected)continue;
+  const details=document.createElement('details');details.className='telemetry-device';details.dataset.device=device.device_id;details.open=devices.length===1||expanded.has(device.device_id)||selected===device.device_id;
+  const title=document.createElement('summary');title.textContent=device.device_id+' · '+deviceState(device);details.append(title);
+  const seen=document.createElement('p');seen.className='telemetry-empty';seen.textContent='Latest message: '+new Date(device.last_seen).toLocaleString();details.append(seen,telemetryFields(device.telemetry));host.append(details);
+ }
+ if(!host.childElementCount){const empty=document.createElement('p');empty.className='telemetry-empty';empty.textContent=key?'Waiting for device telemetry.':'Connect to see all reported fields.';host.append(empty);}
+}
 function trackerCard(id,point,device,state){
  const card=document.createElement('section');card.className='tracker-card';
  const title=document.createElement('h3');title.textContent=id;card.append(title);
@@ -56,6 +85,7 @@ function trackerCard(id,point,device,state){
  if(point.battery!=null)values.push(['Battery',point.battery+'%']);
  if(device?.uptime_ms!=null)values.push(['Uptime',Math.floor(device.uptime_ms/60000)+' min']);
  for(const [label,value] of values){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dd.textContent=value;details.append(dt,dd);}card.append(details);
+ const heading=document.createElement('h4');heading.textContent='Additional telemetry · latest message';card.append(heading,telemetryFields(device?.telemetry,['device_id','latitude','longitude','speed','battery','gps_fix','uptime_ms']));
  const hint=document.createElement('p');hint.className='hint';hint.textContent=state==='online'?'Pulse indicates recent contact, not continuous movement.':'This marker stays at the last received GPS position.';card.append(hint);return card;
 }
 const legend=L.control({position:'bottomright'});legend.onAdd=()=>{const box=L.DomUtil.create('div','map-legend');box.innerHTML='<span><i class="legend-dot" style="background:#09956b"></i>Online · seen within 90s</span><span><i class="legend-dot" style="background:#718096"></i>Offline · last known location</span><span><i class="legend-dot" style="background:#d58b17"></i>Status unavailable</span>';return box;};legend.addTo(map);
@@ -64,7 +94,7 @@ function draw(){
  for(const p of points){if(!groups.has(p.device_id))groups.set(p.device_id,[]);groups.get(p.device_id).push(p);}
  const selected=$('device').value,ids=[...new Set([...groups.keys(),...devices.map(d=>d.device_id)])];
  $('device').replaceChildren(new Option('All devices',''),...ids.map(id=>new Option(id,id)));$('device').value=ids.includes(selected)?selected:'';
- $('count').textContent=ids.length;
+ $('count').textContent=ids.length;drawTelemetry();
  $('online').replaceChildren(...devices.map(d=>{const el=document.createElement('p');el.style.color=deviceState(d)==='online'?'#64e2b5':'#b3c9dc';el.textContent=d.device_id+' · '+(deviceState(d)==='online'?'Online':'Offline')+' · '+(d.gps_fix?'GPS fix':'Waiting for GPS')+' · last seen '+new Date(d.last_seen).toLocaleTimeString();return el;}));
  $('map-notice').textContent=points.length?'Tracking '+groups.size+' device(s) · markers show last received positions.':key?'Waiting for tracker GPS data. No positions have been received yet.':'No tracker position yet. Connect with your API key to see received GPS locations.';
  const visible=new Set(ids.filter(id=>!$('device').value||id===$('device').value));
