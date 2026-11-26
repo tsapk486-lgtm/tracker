@@ -134,3 +134,22 @@ Values are displayed as text, with expandable nested objects and arrays; the
 dashboard does not infer units for unfamiliar fields. Include units in field names
 (e.g. `temperature_c`) or send `{"value": 23, "unit": "C"}`. Authentication and
 the 64 KiB request limit still apply. Do not include secrets in telemetry.
+
+## Motion visuals
+
+The Motion section supports the firmware's nested `imu.rms_movement` and
+`imu.peak_magnitude` fields in g. It shows a brief shaking illustration for new
+readings, a movement intensity trace, and peak acceleration bars. Animation
+represents intensity, not measured displacement, and respects reduced motion.
+After 15 seconds without a reading the display is marked last received.
+Peak acceleration includes gravity; the bars are not classified impact events.
+
+Motion history is stored even without a GPS fix and returned in the authenticated
+`/api/positions` response, from the latest 5,000 stored readings. Each chart shows
+up to 120 summaries per device against server receipt time. These summaries cannot
+reconstruct a raw vibration waveform. Nested `gps` messages with `fix`, `latitude`,
+`longitude`, and `speed_kmh` are also supported. Select a device to focus its visuals.
+
+The dashboard checks for new readings every second. Current physical firmware
+queues one summary every 15 seconds; cellular latency adds delay. Continuous
+motion playback requires timestamped sample batches and a firmware reflash.

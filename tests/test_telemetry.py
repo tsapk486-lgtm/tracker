@@ -54,6 +54,27 @@ class TelemetryTest(unittest.TestCase):
         data = create_app(self.config).test_client().get("/api/positions", headers=self.headers).get_json()
         self.assertEqual(data["devices"][0]["telemetry"], {})
 
+    def test_nested_firmware_motion_without_gps_fix(self):
+        payload = {"device_id": "imu-a", "gps": {"fix": False, "latitude": 0, "longitude": 0},
+                   "imu": {"rms_movement": .12, "peak_magnitude": 1.8}}
+        self.assertEqual(self.send(payload).status_code, 201)
+        self.send({**payload, "imu": {"rms_movement": .3, "peak_magnitude": 2.1}})
+        data = self.read()
+        self.assertEqual(len(data["motion"]), 2)
+        self.assertEqual(data["motion"][0]["rms_movement"], .12)
+        self.assertEqual(data["points"], [])
+        self.assertFalse(data["devices"][0]["gps_fix"])
+        self.assertEqual(self.client.get('/api/positions').status_code, 401)
+
+    def test_nested_gps_and_invalid_motion_values(self):
+        self.send({"device_id": "a", "gps": {"fix": True, "latitude": -1.2,
+                   "longitude": 36.8, "speed_kmh": 12},
+                   "imu": {"rms_movement": True, "peak_magnitude": -1}})
+        data = self.read()
+        self.assertEqual(data["motion"], [])
+        self.assertEqual(data["points"][0]["speed"], 12)
+        self.assertTrue(data["devices"][0]["gps_fix"])
+
 
 if __name__ == "__main__":
     unittest.main()

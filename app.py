@@ -52,8 +52,22 @@ def create_app(config=None):
         with sqlite3.connect(app.config["DATABASE"], timeout=10) as db:
             rows = db.execute("SELECT id, received_at, payload FROM readings ORDER BY id DESC LIMIT 5000").fetchall()
         points = []
+        motion = []
         for row_id, received_at, raw in reversed(rows):
             payload = json.loads(raw)
+            imu = payload.get("imu")
+            if isinstance(imu, dict):
+                values = {name: value for name in ("rms_movement", "peak_magnitude")
+                          if type(value := imu.get(name)) in (int, float)
+                          and math.isfinite(value) and value >= 0}
+                if values:
+                    motion.append(dict(id=row_id, received_at=received_at,
+                                       device_id=str(payload.get("device_id", "unknown")), **values))
+            gps = payload.get("gps")
+            if isinstance(gps, dict):
+                payload = {**payload, **gps, "speed": gps.get("speed_kmh")}
+                if not gps.get("fix"):
+                    continue
             lat, lon = payload.get("latitude"), payload.get("longitude")
             if (type(lat) not in (int, float) or type(lon) not in (int, float)
                     or not math.isfinite(lat) or not math.isfinite(lon)
@@ -69,7 +83,7 @@ def create_app(config=None):
                 d.uptime_ms, t.payload FROM devices d LEFT JOIN device_telemetry t
                 ON t.device_id=d.device_id ORDER BY d.device_id""").fetchall()
         now = datetime.now(timezone.utc)
-        response = jsonify(points=points, devices=[{
+        response = jsonify(points=points, motion=motion, devices=[{
             "device_id": device, "last_seen": seen, "gps_fix": bool(fix),
             "uptime_ms": uptime,
             "telemetry": json.loads(raw) if raw is not None else {},
@@ -94,7 +108,9 @@ def create_app(config=None):
         uptime = payload.get("uptime_ms")
         if uptime is not None and (type(uptime) is not int or not 0 <= uptime <= 2**32 - 1):
             return jsonify(error="uptime_ms must be an unsigned 32-bit integer"), 400
-        fix = payload.get("gps_fix", "latitude" in payload and "longitude" in payload)
+        gps = payload.get("gps")
+        fix = payload.get("gps_fix", gps.get("fix", False) if isinstance(gps, dict)
+                          else "latitude" in payload and "longitude" in payload)
         if type(fix) is not bool:
             return jsonify(error="gps_fix must be boolean"), 400
         received_at = datetime.now(timezone.utc).isoformat()
@@ -107,7 +123,7 @@ def create_app(config=None):
                 ON CONFLICT(device_id) DO UPDATE SET payload=excluded.payload""",
                 (device, json.dumps(payload)))
             reading_id = None
-            if "latitude" in payload and "longitude" in payload:
+            if ("latitude" in payload and "longitude" in payload) or isinstance(gps, dict) or isinstance(payload.get("imu"), dict):
                 cursor = db.execute(
                     "INSERT INTO readings (received_at, payload) VALUES (?, ?)",
                     (received_at, json.dumps(payload)),

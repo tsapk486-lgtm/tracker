@@ -19,9 +19,12 @@
 
 .device-picker{position:relative}#device{display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;margin:0;background:#10171d;border:1px solid #3a4852;color:var(--ink);font-weight:500;box-shadow:none}#device:hover{border-color:#697c88;background:#18232b}#device[aria-expanded=true]{border-color:var(--accent);background:#19251d}#device-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#device svg{width:17px;height:17px;flex-shrink:0;fill:none;stroke:#a3b3bc;stroke-width:1.8;transition:transform .15s}#device[aria-expanded=true] svg{transform:rotate(180deg);stroke:var(--accent)}#device-options{position:absolute;top:calc(100% + 7px);left:0;right:0;z-index:1000;background:#172128;border:1px solid #45564d;border-radius:10px;padding:5px;box-shadow:0 16px 40px #0007;max-height:250px;overflow:auto;scrollbar-width:thin}#device-options[hidden]{display:none}.device-option{display:flex;align-items:center;gap:10px;padding:11px 10px;border-radius:6px;font-size:14px;color:#d8e3e9;cursor:pointer;min-height:42px}.device-option[aria-selected=true]{color:var(--accent);background:#b9ed8010}.device-option.active,.device-option:hover{background:#2c3c36;box-shadow:inset 0 0 0 1px #b9ed8033}.device-option .option-name{flex:1;overflow-wrap:anywhere}.option-indicator{width:7px;height:7px;border-radius:50%;background:#82909c;flex-shrink:0}.option-indicator.online{background:#20a878}.option-check{width:15px;height:15px;fill:none;stroke:var(--accent);stroke-width:2}
 </style>
+<style>
+.motion-device{border-top:1px solid var(--line);padding:14px 0}.motion-device h3{font-size:14px;overflow-wrap:anywhere}.motion-device h4{font-size:12px;color:var(--muted);margin:18px 0 4px}.motion-device svg{width:100%;height:auto;display:block}.motion-scene{height:90px;display:grid;place-items:center;background:radial-gradient(ellipse,var(--line),transparent 70%)}.motion-model{border:2px solid var(--accent);border-radius:10px;width:40px;height:64px;display:grid;place-items:center;color:var(--accent);font-size:24px}.motion-value{font-variant-numeric:tabular-nums;font-size:14px;margin:8px 0}.motion-device p{margin:6px 0}
+</style>
 </head>
 <body>
-<header><div class="brand"><span class="brand-symbol" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 1v4m0 14v4M1 12h4m14 0h4"/></svg></span><h1>Tracker</h1><span class="brand-caption">Location workspace</span></div><div class="header-meta"><span class="refresh-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/></svg>Updates every 5s</span><span class="workspace-label">GPS TELEMETRY</span></div></header>
+<header><div class="brand"><span class="brand-symbol" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 1v4m0 14v4M1 12h4m14 0h4"/></svg></span><h1>Tracker</h1><span class="brand-caption">Location workspace</span></div><div class="header-meta"><span class="refresh-label"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/></svg>Checks every 1s</span><span class="workspace-label">GPS TELEMETRY</span></div></header>
 <main class="layout"><aside>
 <p class="eyebrow">OVERVIEW</p><h2>Every device. In view.</h2><p class="intro">Follow your fleet and explore its latest telemetry.</p>
 <form id="connect"><label for="key">Tracker API key</label><input id="key" type="password" autocomplete="off" placeholder="Enter your API key" required><button>Connect to tracker</button></form>
@@ -30,11 +33,13 @@
 <button id="fit" class="secondary">Fit all positions</button>
 <label class="check"><input id="follow" type="checkbox" checked> Follow selected device</label>
 <div class="metric"><small>Devices in history</small><strong id="count">—</strong></div>
+<section class="telemetry-panel"><h2>Motion</h2><div id="motion"><p class="telemetry-empty">Connect to see motion.</p></div></section>
 <section class="telemetry-panel"><h2>Live telemetry</h2><div id="telemetry"><p class="telemetry-empty">Connect to see all reported fields.</p></div></section>
 <button id="disconnect" class="secondary">Disconnect</button>
 <footer>Markers show the latest received position. Lines show up to 5,000 recent stored readings. No sample locations are displayed.</footer>
 </aside><div id="map" aria-label="Tracker location map"></div></main>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="{{ url_for('static', filename='motion.js') }}"></script>
 <script>
 const map=L.map('map').setView([0,20],3);
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}).addTo(map);
@@ -44,7 +49,7 @@ mapNotice.onAdd=()=>{const box=L.DomUtil.create('div','map-notice');box.id='map-
 mapNotice.addTo(map);
 
 const layers=L.featureGroup().addTo(map), $=id=>document.getElementById(id);
-let key='',points=[],devices=[],busy=false,first=true,generation=0;
+let key='',points=[],devices=[],motion=[],busy=false,first=true,generation=0;
 const markers=new Map(), trails=new Map();
 let lastSync=0;
 const colors=['#087f85','#e56a24','#7058c7','#d23e67','#2373cc'];
@@ -146,6 +151,8 @@ function draw(){
  const selected=$('device').value,ids=[...new Set([...groups.keys(),...devices.map(d=>d.device_id)])];
  renderDevicePicker(ids,ids.includes(selected)?selected:'');
  $('count').textContent=ids.length;drawTelemetry();
+ const motionVersion=JSON.stringify([generation,$('device').value,devices.map(d=>[d.device_id,d.last_seen,Date.now()-Date.parse(d.last_seen)<15000])]);
+ if(draw.motionVersion!==motionVersion){drawMotion(devices,motion,$('device').value,!!key);draw.motionVersion=motionVersion;}
  $('map-notice').textContent=points.length?'Tracking '+groups.size+' device(s) · markers show last received positions.':key?'Waiting for tracker GPS data. No positions have been received yet.':'No tracker position yet. Connect with your API key to see received GPS locations.';
  const visible=new Set(ids.filter(id=>!$('device').value||id===$('device').value));
  for(const [id,marker] of markers)if(!visible.has(id)||!groups.has(id)){layers.removeLayer(marker);markers.delete(id);}
@@ -164,11 +171,11 @@ function draw(){
  if(first&&points.length){fit();first=false;}else if($('follow').checked&&$('device').value&&latest&&![...markers.values()].some(marker=>marker.isPopupOpen()))map.panTo([latest.latitude,latest.longitude]);
 }
 async function refresh(){if(!key||busy)return;busy=true;const version=generation;
- try{const r=await fetch('/api/positions',{headers:{'X-API-Key':key},cache:'no-store'});if(version!==generation)return;if(!r.ok)throw Error(r.status===401?'Incorrect API key. Please reconnect.':'Unable to fetch positions ('+r.status+').');const data=await r.json();if(version!==generation)return;points=data.points;devices=data.devices||[];lastSync=Date.now();draw();$('status').textContent=points.length?'Connected · updated '+new Date().toLocaleTimeString():'Connected · waiting for GPS readings.';}
+ try{const r=await fetch('/api/positions',{headers:{'X-API-Key':key},cache:'no-store'});if(version!==generation)return;if(!r.ok)throw Error(r.status===401?'Incorrect API key. Please reconnect.':'Unable to fetch positions ('+r.status+').');const data=await r.json();if(version!==generation)return;points=data.points;devices=data.devices||[];motion=data.motion||[];lastSync=Date.now();draw();$('status').textContent=points.length?'Connected · updated '+new Date().toLocaleTimeString():'Connected · waiting for GPS readings.';}
  catch(e){if(version===generation)$('status').textContent=e.message;}finally{busy=false;}
 }
 $('connect').onsubmit=e=>{e.preventDefault();generation++;key=$('key').value;$('key').value='';first=true;refresh();};
-$('disconnect').onclick=()=>{generation++;key='';points=[];devices=[];lastSync=0;layers.clearLayers();markers.clear();trails.clear();draw();$('status').textContent='Disconnected. Location data cleared.';};
-$('fit').onclick=fit;setInterval(refresh,5000);
+$('disconnect').onclick=()=>{generation++;key='';points=[];devices=[];motion=[];lastSync=0;layers.clearLayers();markers.clear();trails.clear();draw();$('status').textContent='Disconnected. Location data cleared.';};
+$('fit').onclick=fit;setInterval(refresh,1000);
 setInterval(()=>{if(!key)return;draw();if(lastSync&&Date.now()-lastSync>15000)$('status').textContent='Connection interrupted · showing last received data. Retrying…';},5000);
 </script></body></html>
