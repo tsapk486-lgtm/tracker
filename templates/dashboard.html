@@ -18,13 +18,10 @@
 <h2>Your fleet, in view.</h2>
 <form id="connect"><label for="key">Tracker API key</label><input id="key" type="password" autocomplete="off" placeholder="Enter your API key" required><button>Connect to tracker</button></form>
 <div id="status" role="status" aria-live="polite">Connect to display your devices. Location data requires your API key.</div>
-<div id="online" role="status">No device heartbeat received.</div><label for="device">Device</label><select id="device"><option value="">All devices</option></select>
+<label for="device">Device</label><select id="device"><option value="">All devices</option></select>
 <button id="fit" class="secondary">Fit all positions</button>
 <label class="check"><input id="follow" type="checkbox" checked> Follow selected device</label>
 <div class="metric"><small>Devices in history</small><strong id="count">—</strong></div>
-<div class="metric"><small>Last received</small><strong id="last">—</strong></div>
-<div class="metric"><small>Speed (km/h)</small><strong id="speed">—</strong></div>
-<div class="metric"><small>Battery</small><strong id="battery">—</strong></div>
 <section class="telemetry-panel"><h2>Live telemetry</h2><div id="telemetry"><p class="telemetry-empty">Connect to see all reported fields.</p></div></section>
 <button id="disconnect" class="secondary">Disconnect</button>
 <footer>Markers show the latest received position. Lines show up to 5,000 recent stored readings. No sample locations are displayed.</footer>
@@ -72,7 +69,7 @@ function drawTelemetry(){
  for(const device of devices){if(selected&&device.device_id!==selected)continue;
   const details=document.createElement('details');details.className='telemetry-device';details.dataset.device=device.device_id;details.open=devices.length===1||expanded.has(device.device_id)||selected===device.device_id;
   const title=document.createElement('summary');title.textContent=device.device_id+' · '+deviceState(device);details.append(title);
-  const seen=document.createElement('p');seen.className='telemetry-empty';seen.textContent='Latest message: '+new Date(device.last_seen).toLocaleString();details.append(seen,telemetryFields(device.telemetry));host.append(details);
+  const seen=document.createElement('p');seen.className='telemetry-empty';seen.textContent='Latest message: '+new Date(device.last_seen).toLocaleString();details.append(seen,telemetryFields(device.telemetry,['device_id']));host.append(details);
  }
  if(!host.childElementCount){const empty=document.createElement('p');empty.className='telemetry-empty';empty.textContent=key?'Waiting for device telemetry.':'Connect to see all reported fields.';host.append(empty);}
 }
@@ -95,7 +92,6 @@ function draw(){
  const selected=$('device').value,ids=[...new Set([...groups.keys(),...devices.map(d=>d.device_id)])];
  $('device').replaceChildren(new Option('All devices',''),...ids.map(id=>new Option(id,id)));$('device').value=ids.includes(selected)?selected:'';
  $('count').textContent=ids.length;drawTelemetry();
- $('online').replaceChildren(...devices.map(d=>{const el=document.createElement('p');el.style.color=deviceState(d)==='online'?'#64e2b5':'#b3c9dc';el.textContent=d.device_id+' · '+(deviceState(d)==='online'?'Online':'Offline')+' · '+(d.gps_fix?'GPS fix':'Waiting for GPS')+' · last seen '+new Date(d.last_seen).toLocaleTimeString();return el;}));
  $('map-notice').textContent=points.length?'Tracking '+groups.size+' device(s) · markers show last received positions.':key?'Waiting for tracker GPS data. No positions have been received yet.':'No tracker position yet. Connect with your API key to see received GPS locations.';
  const visible=new Set(ids.filter(id=>!$('device').value||id===$('device').value));
  for(const [id,marker] of markers)if(!visible.has(id)||!groups.has(id)){layers.removeLayer(marker);markers.delete(id);}
@@ -111,7 +107,6 @@ function draw(){
  else {marker.setLatLng([p.latitude,p.longitude]);if(marker._trackerState!==state){marker.setIcon(markerIcon(state));marker._trackerState=state;}marker.setPopupContent(trackerCard(id,p,device,state));marker.setTooltipContent(id+' · '+state);}
  if(!latest||p.id>latest.id)latest=p;
  });
- $('last').textContent=latest?new Date(latest.received_at).toLocaleString():'—';$('speed').textContent=latest?.speed??'—';$('battery').textContent=latest?.battery!=null?latest.battery+'%':'—';
  if(first&&points.length){fit();first=false;}else if($('follow').checked&&$('device').value&&latest)map.panTo([latest.latitude,latest.longitude]);
 }
 async function refresh(){if(!key||busy)return;busy=true;const version=generation;
